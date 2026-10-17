@@ -1,0 +1,840 @@
+// =============================================================================
+//  QR CODE GENERATOR  -  Soplang (Laga bilaabay eber / From Scratch)
+// =============================================================================
+//  Mashruucan wuxuu si buuxda u hirgelinayaa hab-dhismeedka heerka caalamiga ah
+//  ee QR Code (ISO/IEC 18004) isagoo ku qoran afka Soplang, bilaa wax maktabado
+//  dibadeed ah (Zero External Dependencies).
+//
+//  Waxyaabaha ugu muhiimsan:
+//  - Qaabka Byte Mode (8-bit) ee xogta qoraalka iyo link-yada.
+//  - Noocyada (Versions) 1 ilaa 10, iyo 4-ta heer ee sixitaanka (L, M, Q, H).
+//  - Xisaabinta Galois Field GF(256) iyo Reed-Solomon Error Correction.
+//  - Dhisidda Matrix-ka, 8-da nooc ee Mask-yada, iyo xisaabinta Penalty-ga.
+//  - Soo bandhigid toos ah terminal-ka (Unicode half-blocks) iyo dhisidda SVG.
+// =============================================================================
+
+// Dejinta tijaabada:
+// -1   = Dooro mask-ga ugu fiican si otomaatig ah (habka caadiga ah)
+// 0..7 = Ku qas mask gaar ah (waxaa loo isticmaalaa tijaabada)
+door MASK_TIJAABO = -1
+
+
+// =============================================================================
+//  1. QALABKA XISAABTA (Math & Bitwise Utilities)
+// =============================================================================
+//  Afka Soplang kuma jiraan calaamadaha bitwise-ka sida (^, &, <<, >>).
+//  Sidaa darteed, qaybtan waxay dhisaysaa shaqooyin xisaabeed oo beddela.
+
+// Miiska awoodaha lambarka 2 (2^0 ilaa 2^24) si loogu fududeeyo xisaabinta bit-yada
+door POW2 = []
+door pw = 1
+kuceli (pi 0 ilaa 24) {
+  POW2.geli(pw)
+  pw = pw * 2
+}
+
+// bit(n, i):
+// Wuxuu soo saaraa bit-ka ku jira booska 'i' ee tirada 'n' (0 = bit-ka ugu hooseeya)
+hawl bit(n, i) {
+  celi (daji(n / POW2[i]) % 2)
+}
+
+// xor_laba(a, b):
+// Wuxuu qabtaa hawlgalka Bitwise XOR ee laba tiroood (a ^ b)
+hawl xor_laba(a, b) {
+  door r = 0
+  door p = 1
+  intay (a > 0 || b > 0) {
+    haddii ((a % 2) != (b % 2)) {
+      r = r + p
+    }
+    a = daji(a / 2)
+    b = daji(b / 2)
+    p = p * 2
+  }
+  celi r
+}
+
+// abs_(x):
+// Wuxuu soo celiyaa qiimaha sugan (absolute value) ee lambar
+hawl abs_(x) {
+  haddii (x < 0) {
+    celi (0 - x)
+  }
+  celi x
+}
+
+// ugu_weyn(a, b):
+// Wuxuu soo celiyaa lambarka ugu weyn labada tiroood
+hawl ugu_weyn(a, b) {
+  haddii (a > b) {
+    celi a
+  }
+  celi b
+}
+
+// ugu_yar(a, b):
+// Wuxuu soo celiyaa lambarka ugu yar labada tiroood
+hawl ugu_yar(a, b) {
+  haddii (a < b) {
+    celi a
+  }
+  celi b
+}
+
+// eber_liis(n):
+// Wuxuu abuuraa liis cusub oo dhererkiisu yahay 'n', kuna buuxiya eber (0)
+hawl eber_liis(n) {
+  door l = []
+  kuceli (ez 0 ilaa (n - 1)) {
+    l.geli(0)
+  }
+  celi l
+}
+
+
+// =============================================================================
+//  2. GALOIS FIELD GF(256) IYO REED-SOLOMON ERROR CORRECTION
+// =============================================================================
+//  QR Code wuxuu u isticmaalaa Galois Field GF(2^8) = GF(256) xisaabinta
+//  Reed-Solomon iyadoo la adeegsanayo polynomial-ka 285 (x^8 + x^4 + x^3 + x^2 + 1).
+
+door EXP = []
+door LOG = eber_liis(256)
+door gx = 1
+
+// Dhisidda miisaska Exponent iyo Logarithm si isku-dhufashadu u noqoto mid degdeg ah
+kuceli (gi 0 ilaa 254) {
+  EXP.geli(gx)
+  LOG[gx] = gi
+  gx = gx * 2
+  haddii (gx >= 256) {
+    gx = xor_laba(gx, 285)
+  }
+}
+
+// gf_mul(a, b):
+// Isku-dhufashada laba tiro gudaha GF(256) iyadoo la adeegsanayo log tables
+hawl gf_mul(a, b) {
+  haddii (a == 0 || b == 0) {
+    celi 0
+  }
+  celi EXP[(LOG[a] + LOG[b]) % 255]
+}
+
+// rs_generator(deg):
+// Wuxuu dhisaa polynomial-ka dhalinta (Generator Polynomial) ee Reed-Solomon
+// kaas oo leh shahaadada 'deg' (tirada codewords-ka sixitaanka khaladka)
+hawl rs_generator(deg) {
+  door res = eber_liis(deg - 1)
+  res.geli(1)
+  door root = 1
+  kuceli (ga 0 ilaa (deg - 1)) {
+    kuceli (gb 0 ilaa (deg - 1)) {
+      res[gb] = gf_mul(res[gb], root)
+      haddii (gb + 1 < deg) {
+        res[gb] = xor_laba(res[gb], res[gb + 1])
+      }
+    }
+    root = gf_mul(root, 2)
+  }
+  celi res
+}
+
+// rs_baaqi(dat, gen):
+// Wuxuu xisaabiyaa baaqiga (remainder / parity codewords) marka xogta
+// loo qaybiyo generator polynomial-ka (Tani waa habka Reed-Solomon EC)
+hawl rs_baaqi(dat, gen) {
+  door n = gen.dherer()
+  door rem = eber_liis(n)
+  door factor = 0
+  kuceli (ra 0 ilaa (dat.dherer() - 1)) {
+    factor = xor_laba(dat[ra], rem[0])
+    kuceli (rb 0 ilaa (n - 2)) {
+      rem[rb] = rem[rb + 1]
+    }
+    rem[n - 1] = 0
+    kuceli (rc 0 ilaa (n - 1)) {
+      rem[rc] = xor_laba(rem[rc], gf_mul(gen[rc], factor))
+    }
+  }
+  celi rem
+}
+
+
+// =============================================================================
+//  3. MIISASKA AWOODDA IYO CABBIROOYINKA (Capacity & Alignment Tables)
+// =============================================================================
+//  Miiska TBL wuxuu xafidaa qaabdhismeedka rasmiga ah ee ISO/IEC 18004
+//  ee noocyada 1 ilaa 10 ee 4-ta heer (L, M, Q, H).
+//  Qaabka: [EC codewords halkii block, Tirada blocks kooxda 1, Data codewords block kasta,
+//           Tirada blocks kooxda 2, Data codewords block kasta]
+
+door TBL = [
+  [7, 1, 19, 0, 0],   [10, 1, 16, 0, 0],  [13, 1, 13, 0, 0],  [17, 1, 9, 0, 0],
+  [10, 1, 34, 0, 0],  [16, 1, 28, 0, 0],  [22, 1, 22, 0, 0],  [28, 1, 16, 0, 0],
+  [15, 1, 55, 0, 0],  [26, 1, 44, 0, 0],  [18, 2, 17, 0, 0],  [22, 2, 13, 0, 0],
+  [20, 1, 80, 0, 0],  [18, 2, 32, 0, 0],  [26, 2, 24, 0, 0],  [16, 4, 9, 0, 0],
+  [26, 1, 108, 0, 0], [24, 2, 43, 0, 0],  [18, 2, 15, 2, 16], [22, 2, 11, 2, 12],
+  [18, 2, 68, 0, 0],  [16, 4, 27, 0, 0],  [24, 4, 19, 0, 0],  [28, 4, 15, 0, 0],
+  [20, 2, 78, 0, 0],  [18, 4, 31, 0, 0],  [18, 2, 14, 4, 15], [26, 4, 13, 1, 14],
+  [24, 2, 97, 0, 0],  [22, 2, 38, 2, 39], [22, 4, 18, 2, 19], [26, 4, 14, 2, 15],
+  [30, 2, 116, 0, 0], [22, 3, 36, 2, 37], [20, 4, 16, 4, 17], [24, 4, 12, 4, 13],
+  [18, 2, 68, 2, 69], [26, 4, 43, 1, 44], [24, 6, 19, 2, 20], [28, 6, 15, 2, 16]
+]
+
+// Meelaha ay ka dhacaan qaababka toosinta (Alignment Patterns) ee noocyada 1 ilaa 10
+door ALIGN = [
+  [], [6, 18], [6, 22], [6, 26], [6, 30], [6, 34],
+  [6, 22, 38], [6, 24, 42], [6, 26, 46], [6, 28, 50]
+]
+
+// Qiimayaasha laba-bit ee u taagan heerarka EC: L=01, M=00, Q=11, H=10
+door EC_BITS = [1, 0, 3, 2]
+
+// Helitaanka qiimaha ku jira miiska TBL
+hawl tbl_qiime(ver, lv, j) {
+  celi TBL[(ver - 1) * 4 + lv][j]
+}
+
+// Wadarta codewords-ka xogta ee nooca 'ver' iyo heerka 'lv'
+hawl data_codewords(ver, lv) {
+  celi (tbl_qiime(ver, lv, 1) * tbl_qiime(ver, lv, 2) + tbl_qiime(ver, lv, 3) * tbl_qiime(ver, lv, 4))
+}
+
+
+// =============================================================================
+//  4. DHISMAHA MATRIX-KA (Matrix Construction & Fixed Patterns)
+// =============================================================================
+//  Matrix-ka M wuxuu xafidaa midabka module kasta: 0 (cad/iftiin) ama 1 (madow).
+//  Matrix-ka FUN wuxuu calaamadeeyaa meelaha shaqada joogtada ah (Function Modules)
+//  si aan xog loogu dul qorin.
+
+door M = []
+door FUN = []
+door N = 0
+
+// Diyaarinta matrix eber ah oo cabbirkiisu yahay size x size
+hawl bilow_matrix(size) {
+  N = size
+  M = []
+  FUN = []
+  kuceli (br 0 ilaa (size - 1)) {
+    M.geli(eber_liis(size))
+    FUN.geli(eber_liis(size))
+  }
+}
+
+// Dhigista module qiimihiisa (v) iyo calaamadaynta haddii uu shaqo yahay (f)
+hawl dhig_m(r, c, v, f) {
+  M[r][c] = v
+  FUN[r][c] = f
+}
+
+// Finder Pattern 7x7 oo leh xad cad (Separator), laga bilaabo (r0, c0)
+hawl finder(r0, c0) {
+  kuceli (ft 0 ilaa 8) {
+    kuceli (fu 0 ilaa 8) {
+      door rr = r0 + ft - 1
+      door cc = c0 + fu - 1
+      haddii (rr >= 0 && rr < N && cc >= 0 && cc < N) {
+        door dist = ugu_weyn(abs_(ft - 4), abs_(fu - 4))
+        door v = 1
+        haddii (dist == 2 || dist == 4) {
+          v = 0
+        }
+        dhig_m(rr, cc, v, 1)
+      }
+    }
+  }
+}
+
+// Alignment Pattern 5x5 oo xaruntiisu tahay (cr, cc)
+hawl alignment(cr, cc) {
+  kuceli (at 0 ilaa 4) {
+    kuceli (au 0 ilaa 4) {
+      door dd = ugu_weyn(abs_(at - 2), abs_(au - 2))
+      door v = 1
+      haddii (dd == 1) {
+        v = 0
+      }
+      dhig_m(cr + at - 2, cc + au - 2, v, 1)
+    }
+  }
+}
+
+// Format Information (15 bits, BCH error correction) oo leh heerka EC iyo Mask
+hawl dhig_format(lv, mask) {
+  door data = EC_BITS[lv] * 8 + mask
+  door rem = data * 1024
+  kuceli (fi 0 ilaa 4) {
+    door k = 14 - fi
+    haddii (bit(rem, k) == 1) {
+      rem = xor_laba(rem, 1335 * POW2[k - 10])
+    }
+  }
+  door bits = xor_laba(data * 1024 + rem, 21522)
+
+  // Koobiga 1-aad ee ku wareegsan Finder-ka bidixda sare
+  kuceli (fa 0 ilaa 5) {
+    dhig_m(fa, 8, bit(bits, fa), 1)
+  }
+  dhig_m(7, 8, bit(bits, 6), 1)
+  dhig_m(8, 8, bit(bits, 7), 1)
+  dhig_m(8, 7, bit(bits, 8), 1)
+  kuceli (fb 9 ilaa 14) {
+    dhig_m(8, 14 - fb, bit(bits, fb), 1)
+  }
+
+  // Koobiga 2-aad ee kala qaybsan (midigta sare iyo bidixda hoose)
+  kuceli (fc 0 ilaa 7) {
+    dhig_m(8, N - 1 - fc, bit(bits, fc), 1)
+  }
+  kuceli (fd 8 ilaa 14) {
+    dhig_m(N - 15 + fd, 8, bit(bits, fd), 1)
+  }
+  dhig_m(N - 8, 8, 1, 1)    // Module-ka madow ee joogtada ah (Dark Module)
+}
+
+// Version Information (18 bits, BCH) - Noocyada 7 ilaa 10
+hawl dhig_version(ver) {
+  haddii (ver < 7) {
+    celi 0
+  }
+  door rem = ver * 4096
+  kuceli (vi 0 ilaa 5) {
+    door k = 17 - vi
+    haddii (bit(rem, k) == 1) {
+      rem = xor_laba(rem, 7973 * POW2[k - 12])
+    }
+  }
+  door bits = ver * 4096 + rem
+  kuceli (vj 0 ilaa 17) {
+    door a = N - 11 + (vj % 3)
+    door b = daji(vj / 3)
+    dhig_m(b, a, bit(bits, vj), 1)
+    dhig_m(a, b, bit(bits, vj), 1)
+  }
+}
+
+// Dhisidda qaababka joogtada ah ee matrix-ka (Finder, Timing, Alignment)
+hawl dhis_qaab(ver, lv) {
+  bilow_matrix(17 + 4 * ver)
+
+  // 1. Finder patterns saddexda gees
+  finder(0, 0)
+  finder(0, N - 7)
+  finder(N - 7, 0)
+
+  // 2. Timing patterns (xariiqyada talantaalliga ah)
+  kuceli (ti 8 ilaa (N - 9)) {
+    door v = 0
+    haddii (ti % 2 == 0) {
+      v = 1
+    }
+    dhig_m(6, ti, v, 1)
+    dhig_m(ti, 6, v, 1)
+  }
+
+  // 3. Alignment patterns (qaababka toosinta)
+  door pos = ALIGN[ver - 1]
+  door last = pos.dherer() - 1
+  kuceli (ai 0 ilaa last) {
+    kuceli (aj 0 ilaa last) {
+      door skip = been
+      haddii (ai == 0 && aj == 0) {
+        skip = run
+      }
+      haddii (ai == 0 && aj == last) {
+        skip = run
+      }
+      haddii (ai == last && aj == 0) {
+        skip = run
+      }
+      haddii (!skip) {
+        alignment(pos[ai], pos[aj])
+      }
+    }
+  }
+
+  // 4. Format iyo Version placeholders
+  dhig_format(lv, 0)
+  dhig_version(ver)
+}
+
+
+// =============================================================================
+//  5. ENCODING: XOGTA -> CODEWORDS (Byte Mode, RS Blocks, Interleaving)
+// =============================================================================
+
+door CHARS = " !" + '"' + "#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[" + "\" + "]^_`abcdefghijklmnopqrstuvwxyz{|}~"
+door BITS = []
+
+// Ku darista bits liiska BITS
+hawl kudar_bits(val, n) {
+  kuceli (kb 0 ilaa (n - 1)) {
+    BITS.geli(bit(val, n - 1 - kb))
+  }
+}
+
+// Soo saarista qayb ka mid ah xogta (sub-array)
+hawl qayb_data(dat, start, sz) {
+  door l = []
+  kuceli (qz 0 ilaa (sz - 1)) {
+    l.geli(dat[start + qz])
+  }
+  celi l
+}
+
+// dhis_codewords:
+// Wuxuu xogta u beddelaa byte mode, ku daraa header, padding, blocks,
+// xisaabiyaa Reed-Solomon codewords, ka dibna isku-dhex-geliyaa (interleave)
+hawl dhis_codewords(codes, ver, lv) {
+  door len = codes.dherer()
+  door ccBits = 8
+  haddii (ver >= 10) {
+    ccBits = 16
+  }
+  door dataCw = data_codewords(ver, lv)
+  door capBits = dataCw * 8
+
+  BITS = []
+  // 1. Mode indicator: 0100 (Byte mode)
+  kudar_bits(4, 4)
+
+  // 2. Tirada xarfaha (Character count indicator)
+  kudar_bits(len, ccBits)
+
+  // 3. Xogta dhabta ah (ASCII bytes)
+  kuceli (ci 0 ilaa (len - 1)) {
+    kudar_bits(codes[ci], 8)
+  }
+
+  // 4. Terminator (ilaa 4 eber)
+  door tz = ugu_yar(4, capBits - BITS.dherer())
+  kuceli (zi 1 ilaa tz) {
+    BITS.geli(0)
+  }
+
+  // 5. Byte boundary alignment (buuxi ilaa ay noqoto dhowr 8-bit ah)
+  intay (BITS.dherer() % 8 != 0) {
+    BITS.geli(0)
+  }
+
+  // 6. Padding bytes (236 iyo 17 si talantaalli ah ilaa xadku ka buuxsamo)
+  door toggle = 0
+  intay (BITS.dherer() < capBits) {
+    haddii (toggle == 0) {
+      kudar_bits(236, 8)
+    } ugudambeyn {
+      kudar_bits(17, 8)
+    }
+    toggle = 1 - toggle
+  }
+
+  // 7. Bits u beddel codewords (Bytes)
+  door dat = []
+  kuceli (bi 0 ilaa (dataCw - 1)) {
+    door v = 0
+    kuceli (bj 0 ilaa 7) {
+      v = v * 2 + BITS[bi * 8 + bj]
+    }
+    dat.geli(v)
+  }
+
+  // 8. U qaybi blocks iyo xisaabinta Reed-Solomon EC ee block kasta
+  door ecLen = tbl_qiime(ver, lv, 0)
+  door gen = rs_generator(ecLen)
+  door blocks = []
+  door ecs = []
+  door start = 0
+  door maxd = 0
+  kuceli (gi2 0 ilaa 1) {
+    door cnt = tbl_qiime(ver, lv, 1 + gi2 * 2)
+    door sz = tbl_qiime(ver, lv, 2 + gi2 * 2)
+    kuceli (gk 1 ilaa cnt) {
+      door blk = qayb_data(dat, start, sz)
+      blocks.geli(blk)
+      ecs.geli(rs_baaqi(blk, gen))
+      start = start + sz
+      maxd = ugu_weyn(maxd, sz)
+    }
+  }
+
+  // 9. Isku-dhex-galka (Interleaving) data codewords
+  door fin = []
+  kuceli (ii 0 ilaa (maxd - 1)) {
+    kuceli (ij 0 ilaa (blocks.dherer() - 1)) {
+      haddii (ii < blocks[ij].dherer()) {
+        fin.geli(blocks[ij][ii])
+      }
+    }
+  }
+
+  // 10. Isku-dhex-galka (Interleaving) error-correction codewords
+  kuceli (ei 0 ilaa (ecLen - 1)) {
+    kuceli (ej 0 ilaa (ecs.dherer() - 1)) {
+      fin.geli(ecs[ej][ei])
+    }
+  }
+
+  celi fin
+}
+
+
+// =============================================================================
+//  6. MEELAYNTA XOGTA MATRIX-KA IYO MASK-YADA (Placement & Masking)
+// =============================================================================
+
+// dhig_data:
+// Wuxuu bit-yada ku qoraa matrix-ka qaabka zigzag (2 tiir marba, hoos ilaa kor
+// iyo kor ilaa hoos, isagoo ka boodaya meelaha shaqada ah ee FUN)
+hawl dhig_data(fin) {
+  door total = fin.dherer() * 8
+  door idx = 0
+  door right = N - 1
+  intay (right >= 1) {
+    haddii (right == 6) {
+      right = 5    // Ka bood tiirka timing pattern-ka
+    }
+    kuceli (vert 0 ilaa (N - 1)) {
+      kuceli (j 0 ilaa 1) {
+        door x = right - j
+        door upward = (daji((right + 1) / 2) % 2 == 0)
+        door y = vert
+        haddii (upward) {
+          y = N - 1 - vert
+        }
+        haddii (FUN[y][x] == 0 && idx < total) {
+          M[y][x] = bit(fin[daji(idx / 8)], 7 - (idx % 8))
+          idx = idx + 1
+        }
+      }
+    }
+    right = right - 2
+  }
+}
+
+// mask_xaq(m, r, c):
+// 8-da qaaciido ee mask-yada QR Code (ISO/IEC 18004)
+hawl mask_xaq(m, r, c) {
+  door ok = been
+  haddii (m == 0) {
+    ok = ((r + c) % 2 == 0)
+  }
+  haddii (m == 1) {
+    ok = (r % 2 == 0)
+  }
+  haddii (m == 2) {
+    ok = (c % 3 == 0)
+  }
+  haddii (m == 3) {
+    ok = ((r + c) % 3 == 0)
+  }
+  haddii (m == 4) {
+    ok = ((daji(c / 3) + daji(r / 2)) % 2 == 0)
+  }
+  haddii (m == 5) {
+    ok = (((r * c) % 2 + (r * c) % 3) == 0)
+  }
+  haddii (m == 6) {
+    ok = ((((r * c) % 2 + (r * c) % 3) % 2) == 0)
+  }
+  haddii (m == 7) {
+    ok = ((((r + c) % 2 + (r * c) % 3) % 2) == 0)
+  }
+  haddii (ok) {
+    celi 1
+  }
+  celi 0
+}
+
+// dabaq_mask:
+// Wuxuu rogaa module-lada xogta ee buuxiya shuruudda mask-ga
+hawl dabaq_mask(m) {
+  kuceli (mr 0 ilaa (N - 1)) {
+    kuceli (mc 0 ilaa (N - 1)) {
+      haddii (FUN[mr][mc] == 0 && mask_xaq(m, mr, mc) == 1) {
+        M[mr][mc] = 1 - M[mr][mc]
+      }
+    }
+  }
+}
+
+
+// =============================================================================
+//  7. CIQAABTA (Penalty Scoring Rules)
+// =============================================================================
+//  Qiimaynta 4-ta xeer ee ciqaabta si loo doorto mask-ga ugu habboon akhristayaasha
+
+door PAT_A = [1, 0, 1, 1, 1, 0, 1, 0, 0, 0, 0]
+door PAT_B = [0, 0, 0, 0, 1, 0, 1, 1, 1, 0, 1]
+
+hawl pat_isku(r, c, dr, dc, pat) {
+  kuceli (pk 0 ilaa 10) {
+    haddii (M[r + dr * pk][c + dc * pk] != pat[pk]) {
+      celi 0
+    }
+  }
+  celi 1
+}
+
+hawl ciqaab() {
+  door p = 0
+  door rl = 0
+
+  // Xeerka N1: 5 ama wax ka badan oo module oo isku midab ah oo isku xiga
+  kuceli (a 0 ilaa (N - 1)) {
+    rl = 1
+    kuceli (b 1 ilaa (N - 1)) {
+      haddii (M[a][b] == M[a][b - 1]) {
+        rl = rl + 1
+      } ugudambeyn {
+        haddii (rl >= 5) {
+          p = p + rl - 2
+        }
+        rl = 1
+      }
+    }
+    haddii (rl >= 5) {
+      p = p + rl - 2
+    }
+    rl = 1
+    kuceli (b2 1 ilaa (N - 1)) {
+      haddii (M[b2][a] == M[b2 - 1][a]) {
+        rl = rl + 1
+      } ugudambeyn {
+        haddii (rl >= 5) {
+          p = p + rl - 2
+        }
+        rl = 1
+      }
+    }
+    haddii (rl >= 5) {
+      p = p + rl - 2
+    }
+  }
+
+  // Xeerka N2: Aagagga 2x2 ee isku midabka ah
+  kuceli (c1 0 ilaa (N - 2)) {
+    kuceli (c2 0 ilaa (N - 2)) {
+      door v = M[c1][c2]
+      haddii (M[c1][c2 + 1] == v && M[c1 + 1][c2] == v && M[c1 + 1][c2 + 1] == v) {
+        p = p + 3
+      }
+    }
+  }
+
+  // Xeerka N3: Qaababka u eg finder pattern (1:1:3:1:1 oo leh 4 iftiin)
+  kuceli (d1 0 ilaa (N - 1)) {
+    kuceli (d2 0 ilaa (N - 11)) {
+      p = p + 40 * pat_isku(d1, d2, 0, 1, PAT_A)
+      p = p + 40 * pat_isku(d1, d2, 0, 1, PAT_B)
+      p = p + 40 * pat_isku(d2, d1, 1, 0, PAT_A)
+      p = p + 40 * pat_isku(d2, d1, 1, 0, PAT_B)
+    }
+  }
+
+  // Xeerka N4: Isku-dheelitirka madow iyo caddaanka guud ee matrix-ka
+  door dark = 0
+  kuceli (e1 0 ilaa (N - 1)) {
+    kuceli (e2 0 ilaa (N - 1)) {
+      dark = dark + M[e1][e2]
+    }
+  }
+  door tot = N * N
+  p = p + 10 * daji(abs_(dark * 20 - tot * 10) / tot)
+  celi p
+}
+
+
+// =============================================================================
+//  8. SOO BANDHIGIDDA (Terminal & SVG Rendering)
+// =============================================================================
+
+door BORDER = 4    // Xadka cad ee QR Code-ga (Quiet Zone)
+
+// Hubinta haddii module-ka (r, c) uu madow yahay
+hawl madow_ma(r, c) {
+  haddii (r < 0 || r >= N || c < 0 || c >= N) {
+    celi 0
+  }
+  celi M[r][c]
+}
+
+// tus_terminal(fillLight):
+// Wuxuu QR Code-ga si toos ah ugu sawiraa terminal-ka iyadoo la adeegsanayo
+// xarfaha Unicode half-blocks (█, ▀, ▄, ' ') si laba saf hal mar loo daabaco.
+hawl tus_terminal(fillLight) {
+  door lines = daji((N + 2 * BORDER + 1) / 2)
+  kuceli (ln 0 ilaa (lines - 1)) {
+    door r = 2 * ln - BORDER
+    door s = ""
+    kuceli (col (0 - 0) ilaa (N + 2 * BORDER - 1)) {
+      door c = col - BORDER
+      door top = madow_ma(r, c)
+      door bot = madow_ma(r + 1, c)
+      door tf = 0
+      door bf = 0
+      haddii (top != fillLight) {
+        tf = 1
+      }
+      haddii (bot != fillLight) {
+        bf = 1
+      }
+      haddii (tf == 1 && bf == 1) {
+        s = s + "█"
+      }
+      haddii (tf == 1 && bf == 0) {
+        s = s + "▀"
+      }
+      haddii (tf == 0 && bf == 1) {
+        s = s + "▄"
+      }
+      haddii (tf == 0 && bf == 0) {
+        s = s + " "
+      }
+    }
+    qor(s)
+  }
+}
+
+// samee_svg():
+// Wuxuu dhisaa koodhka sawirka vector-ka ah ee SVG
+hawl samee_svg() {
+  door w = N + 2 * BORDER
+  door d = ""
+  kuceli (sr 0 ilaa (N - 1)) {
+    door sc = 0
+    intay (sc < N) {
+      haddii (M[sr][sc] == 1) {
+        door e = sc
+        intay (e < N && M[sr][e] == 1) {
+          e = e + 1
+        }
+        d = d + "M" + qoraal(sc + BORDER) + "," + qoraal(sr + BORDER) + "h" + qoraal(e - sc) + "v1h-" + qoraal(e - sc) + "z"
+        sc = e
+      } ugudambeyn {
+        sc = sc + 1
+      }
+    }
+  }
+  door svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + qoraal(w) + " " + qoraal(w) + '" width="' + qoraal(w * 10) + '" height="' + qoraal(w * 10) + '" shape-rendering="crispEdges">'
+  svg = svg + '<rect width="100%" height="100%" fill="#ffffff"/><path fill="#000000" d="' + d + '"/></svg>'
+  celi svg
+}
+
+
+// =============================================================================
+//  9. MAKTABADA SARE (Python-style High-Level API)
+// =============================================================================
+
+// qrcode_daabac(qoraal_input, lv, fillLight):
+// Hawshan waxay u shaqaysaa sida 'qrcode' ee Python:
+// Waxay qoraalka u beddeshaa QR code waxayna toos ugu sawirtaa terminal-ka.
+hawl qrcode_daabac(qoraal_input, lv, fillLight) {
+  door codes = []
+  door badChar = been
+  kuceli (xi 0 ilaa (qoraal_input.dherer() - 1)) {
+    door ix = CHARS.raadi(qoraal_input[xi])
+    haddii (ix < 0) {
+      badChar = run
+    } ugudambeyn {
+      codes.geli(32 + ix)
+    }
+  }
+
+  haddii (qoraal_input.dherer() == 0) {
+    qor("Khalad: Qoraalka ama link-gu waa faaruq.")
+    celi been
+  }
+
+  haddii (badChar) {
+    qor("Khalad: Qoraalku wuxuu leeyahay xarfo aan ASCII ahayn. Fadlan isticmaal URL-encoding (%XX).")
+    celi been
+  }
+
+  // Dooro version-ka ugu yar ee ku filan dhererka xogta
+  door ver = 0
+  door v = 1
+  intay (v <= 10 && ver == 0) {
+    door ccb = 8
+    haddii (v >= 10) {
+      ccb = 16
+    }
+    haddii (4 + ccb + 8 * codes.dherer() <= data_codewords(v, lv) * 8) {
+      ver = v
+    }
+    v = v + 1
+  }
+
+  haddii (ver == 0) {
+    qor("Khalad: Xogtu aad bay u dheer tahay (xadka ugu sarreeya waa version 10).")
+    celi been
+  }
+
+  // Dhis matrix-ka iyo codewords-ka
+  dhis_qaab(ver, lv)
+  door fin = dhis_codewords(codes, ver, lv)
+  dhig_data(fin)
+
+  // Xulo mask-ga ugu fiican iyadoo la adeegsanayo qiimaynta ciqaabta (penalty)
+  door bestMask = 0
+  door bestPen = 999999999
+  haddii (MASK_TIJAABO >= 0) {
+    bestMask = MASK_TIJAABO
+  } ugudambeyn {
+    kuceli (mk 0 ilaa 7) {
+      dabaq_mask(mk)
+      dhig_format(lv, mk)
+      door pen = ciqaab()
+      haddii (pen < bestPen) {
+        bestPen = pen
+        bestMask = mk
+      }
+      dabaq_mask(mk)
+    }
+  }
+
+  // Hirgeli mask-ga ugu fiican oo daabac QR code-ka
+  dabaq_mask(bestMask)
+  dhig_format(lv, bestMask)
+  tus_terminal(fillLight)
+  celi run
+}
+
+
+// =============================================================================
+//  FULINTA BARNAAMIJKA (Main Program Execution)
+// =============================================================================
+
+// 1. Weydii qoraalka ama link-ga
+door link = gelin("Fadlan geli link-ga ama qoraalka: ")
+link = link.masax()
+
+haddii (link.dherer() > 0) {
+  // 2. Heerka sixitaanka khaladka (Default: M)
+  door lvTxt = gelin("Heerka sixitaanka (L / M / Q / H) [M]: ")
+  door lv = 1
+  haddii (lvTxt == "L" || lvTxt == "l") {
+    lv = 0
+  }
+  haddii (lvTxt == "Q" || lvTxt == "q") {
+    lv = 2
+  }
+  haddii (lvTxt == "H" || lvTxt == "h") {
+    lv = 3
+  }
+
+  // 3. Midabka terminal-ka (Default: Dark theme [h])
+  door tm = gelin("Terminal-kaagu ma madow yahay? (h = haa / m = maya) [h]: ")
+  door fillLight = 1
+  haddii (tm == "m" || tm == "M") {
+    fillLight = 0
+  }
+
+  // Daabac QR Code-ga toos terminal-ka
+  qor("")
+  qrcode_daabac(link, lv, fillLight)
+  qor("")
+}
