@@ -1,0 +1,17 @@
+# Editor & IDE configs
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# Operating system files
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Temporary outputs & logs
+*.tmp
+*.log
+qr.svg
+output.svg
+*.png
