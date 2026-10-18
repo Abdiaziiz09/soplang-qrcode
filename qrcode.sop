@@ -649,7 +649,7 @@ hawl ciqaab() {
 
 
 // =============================================================================
-//  8. SOO BANDHIGIDDA (Terminal & SVG Rendering)
+//  8. SOO BANDHIGIDDA (Terminal Rendering)
 // =============================================================================
 
 door BORDER = 4    // Xadka cad ee QR Code-ga (Quiet Zone)
@@ -697,31 +697,6 @@ hawl tus_terminal(fillLight) {
     }
     qor(s)
   }
-}
-
-// samee_svg():
-// Wuxuu dhisaa koodhka sawirka vector-ka ah ee SVG
-hawl samee_svg() {
-  door w = N + 2 * BORDER
-  door d = ""
-  kuceli (sr 0 ilaa (N - 1)) {
-    door sc = 0
-    intay (sc < N) {
-      haddii (M[sr][sc] == 1) {
-        door e = sc
-        intay (e < N && M[sr][e] == 1) {
-          e = e + 1
-        }
-        d = d + "M" + qoraal(sc + BORDER) + "," + qoraal(sr + BORDER) + "h" + qoraal(e - sc) + "v1h-" + qoraal(e - sc) + "z"
-        sc = e
-      } ugudambeyn {
-        sc = sc + 1
-      }
-    }
-  }
-  door svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + qoraal(w) + " " + qoraal(w) + '" width="' + qoraal(w * 10) + '" height="' + qoraal(w * 10) + '" shape-rendering="crispEdges">'
-  svg = svg + '<rect width="100%" height="100%" fill="#ffffff"/><path fill="#000000" d="' + d + '"/></svg>'
-  celi svg
 }
 
 
