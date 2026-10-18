@@ -31,7 +31,7 @@ This project implements the complete **ISO/IEC 18004 QR Code standard** without 
 
 ## 🔍 Overview
 
-[Soplang](https://github.com/soplang/soplang) is an interpreted programming language designed with Somali keywords and syntax. 
+[Soplang](https://github.com/soplang/soplang) is a compiled programming language designed with Somali keywords and syntax.
 
 Generating a scannable QR Code requires complex cryptographic and mathematical algorithms that are traditionally handled by heavy C/C++ libraries (such as `libqrencode` or `zint`). This project proves the capabilities of Soplang by providing a **pure native implementation of the ISO/IEC 18004 specification**, capable of running on any machine where Soplang is installed.
 
@@ -136,7 +136,7 @@ The candidate with the lowest penalty score is automatically selected.
 
 ### Interactive Mode
 
-Execute `qrcode.sop` directly using the Soplang interpreter:
+Execute `qrcode.sop` directly using the Soplang compiler:
 
 ```bash
 soplang qrcode.sop
