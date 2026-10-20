@@ -20,7 +20,7 @@ This project implements the complete **ISO/IEC 18004 QR Code standard** without 
 - [Prerequisites & Environment](#-prerequisites--environment)
 - [How to Run](#-how-to-run)
   - [Interactive Mode](#interactive-mode)
-  - [Terminal Scan & Dark Mode](#terminal-scan--dark-mode)
+  - [Terminal Scan & Dark and Light Modes](#terminal-scan--dark-and-light-modes)
 - [Error Correction Levels & Capacities](#-error-correction-levels--capacities)
 - [Architecture & Modular Breakdown](#-architecture--modular-breakdown)
 - [Verification & Validation](#-verification--validation)
@@ -150,11 +150,13 @@ The program will guide you through interactive prompts:
 
 ---
 
-### Terminal Scan & Dark Mode
+### Terminal Scan & Dark and Light Modes
 
 QR scanners expect **dark modules on a light background**. 
 * On **dark-themed terminals** (black or dark background), select `h` (Yes). The program will invert the Unicode block colors so the QR code appears with a light border and dark modules.
 * On **light-themed terminals** (white or cream background), select `m` (No).
+
+#### Dark-themed terminal (`h`)
 
 ```text
 █████████████████████████████████
@@ -174,6 +176,28 @@ QR scanners expect **dark modules on a light background**.
 ████▄▄▄▄▄▄▄█▄▄▄▄▄▄█████▄▄▄▄▄▄████
 █████████████████████████████████
 █████████████████████████████████
+```
+
+#### Light-themed terminal (`m`)
+
+```text
+                                 
+                                 
+    █▀▀▀▀▀█  ▀▄ ██▄▄█ █▀▀▀▀▀█    
+    █ ███ █ █▀█▄ ▄▄█  █ ███ █    
+    █ ▀▀▀ █ █▀██▀▄▄▄▀ █ ▀▀▀ █    
+    ▀▀▀▀▀▀▀ █▄█▄▀ █▄█ ▀▀▀▀▀▀▀    
+    ▀ █▀██▀▄ ▄█  █  ▄▄▀█▀▀▀▄     
+    ▄▄  ▄ ▀▄▀  ██▀▀█ █▀█▀▀ ▀█    
+    ▄▀▀▀ ▀▀  █▀ ▄█▀▀██▀█▀▄▀█▀    
+    █ ▄▀▄▀▀█▄█  ▄▀█▀██▀██▀ ▀█    
+    ▀ ▀▀ ▀▀ █▄█ ▀▀█▄█▀▀▀█▄▀      
+    █▀▀▀▀▀█ ▄▄▀█▀▀  █ ▀ █▄▀▀█    
+    █ ███ █ █▄ ▀█▀▀▀█▀█▀█▄█▄▄    
+    █ ▀▀▀ █ ▀▀▀▄ ▀█▀▄▄ ▄▄█▀ █    
+    ▀▀▀▀▀▀▀ ▀▀▀▀▀▀     ▀▀▀▀▀▀    
+                                 
+                                 
 ```
 
 ---
